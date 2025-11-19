@@ -15,7 +15,7 @@ The incident was closed as **True Positive - suspicious activity**, with **no co
 
 The SOC received a Sentinel incident based on the rule:
 
-> Same remote IP address has failed to log in to the same local host (Azure VM) 10 times or more withing the last 5 hours.
+> Same remote IP address has failed to log in to the same local host (Azure VM) 10 times or more within the last 5 hours.
 
 Goal of the investigation:
 
@@ -35,7 +35,7 @@ Goal of the investigation:
 
 ---
 
-## Detection & Inital Triage
+## Detection & Initial Triage
 
 1. **Sentinel incident overview**
 
@@ -96,23 +96,7 @@ For each affected VM:
 
 ### 3. Check for successful logons
 
-I searched in DeviceLogonEvents with the exact KQL query that our detection for Brute Force Attempts used:
-
-```kql
-DeviceLogonEvents
-| where ActionType == “LogonFailed” and TimeGenerated > ago(5h)
-| summarize EventCount=count() by RemoteIP, DeviceName
-| where EventCount >= 10
-| order by EventCount
-```
-
-The findings were matching the results of our alert: 21 VMs attacked by 17 different public IPs, with a combined sum of 550 tries.
-
-Then I went with our runbook and isolated every device that was affected by the attack and ran an AV scan for every device.
-
-I restricted inbound NSG rules on the attacked VMs to allow only internal/management traffic.
-
-After that I checked with every target device if the suspected public IP attacker had any successful attempt with this KQL query:
+For each VM / attacking IP pair, ran:
 
 ```kql
 let TargetDevice = “TargetDeviceName”;
@@ -123,48 +107,76 @@ DeviceLogonEvents
 | order by TimeGenerated desc
 ```
 
-I did the query for every device with its attacker. Every query gave no results.
+**Result**: no matching `LogonSuccess` events for any suspect IP / target VM combination.
 
-The incident was closed as a True Positive - brute force attempts occurred but none of them were successful.
+_Screenshot:_ query returning no results
+![KQL no success](screenshots/kql-no-success.png)
+
+### 4. Close the incident
+
+- Added a closing comment and set the incident to:
+  - Status: `Closed`
+  - Classification: `True Positive - Suspicious activity`
+  - Comment: "Brute force attempts occurred but none of them were successful."
+ 
+    _Screenshot:_ closing dialogue with comment
+    ![Close incident](screenshots/close-incident.png)
 
 ---
 
-## Condensed timeline
-	
-Start of the brute force: 11/18/25 01:32 PM
-Alert triggered: 11/18/25 05:07 PM
-Incident changed status to active: 11/18/25 05:16 PM
-Isolating VMs, AV scanning and setting NSG rules: 11/18/25 05:23 PM - 05:30 PM
-Checking if any of the BF attempts were successful: 11/18/25 05:33 PM
-Closing the incident: 11/18/25 05:40 PM
+## Condensed Timeline (Lab Scenario)
+
+- **13:32** - First brute force attempts against exposed Azure VMs begin.
+- **17:07** - Sentinel analytics rule fires (threshold: >= 10 failed logons per IP/VM in the last 5 hours).
+- **17:16** - Incident claimed and set to `Active`.
+- **17:23-17:30** - Devices isolated logically (AV scans, NSG restrictions applied).
+- **17:33** - Verified there was **no successful logons** from attacking IPs.
+- **17:40** - Incident closed as True Positive - brute force attempts, no compromise.
+
+> Note: Times are approximate and represent a realistic flow for a lab scenario, not production SLAs.
 
 ---
 
 ## Findings & Impact
 
-All new VMs are having all inbound ports opened by default - very dangerous, the devices can be scanned by potential attackers, bots, etc.
-There was no dedicated analytics rule to detect successful logons following brute-force activity - very dangerous, this can give a potential attacker, who would break in, a valuable time to leave persistence or some kind of backdoor, even if detected afterwards.
-The runbook triggers heavy containment (isolation, scans) before confirming compromise, which wastes analyst time on low-impact activity - time and resource wasting, we don’t have to act as if there is a break in if we are not sure of one. This way analysts cannot take care of different, more serious alerts.
-There is no structured brute force rule that would add severity when a certain number of attempts would be crossed - missed opportunity, can be dangerous, so that 100 attempts in the last 5 hours would get higher severity (e.g. High instead of Medium), so that 100 are treated as more serious than 10 attempts.
+**1. Over-exposed NSG defaults**
+	- New VMs were created with broadly open inbound rules, making them easily discoverable and brute-forceable from the Internet.
+**2. No detection for successful brute force**
+	- Existing rules focused only on failed attempts.
+	- A successful brute force would not have raised a higher-urgency alert immediately.
+**3. Runbook sequence**
+	- Current runbook pushed analysts toward isolation actions before confirming actual compromise.
+	- This can waste time/compute and reduce focus on more critical alerts.
+**4. No severity scaling with volume**
+	- Same rule/severity for 10 and 500+ attempts over 5 hours.
+	- Mussing opportunity to prioritise more aggressive brute-force campaigns.
 
 ---
 
-## Response & Remediations
+## Response & Recommended Improvements
 
-	What was done as a response:
-All the attacked VMs were isolated.
-All the attacked VMs were scanned with AV - no results.
-NSG rules for attacked VMs were changed to only allow inside connection.
+**Actions taken in this lab:**
+- Isolated / restricted access to all affected VMs via NSG.
+- Ran AV scans on all targeted hosts (no malware detected).
+- Documented the incident, KQL queries and findings.
 
-	What can be improved:
-Basic NSG rules for new VMs should be allowing only traffic from the inside.
-A new rule can be applied for detecting successful brute forces.
-Runbooks for brute force attempts should be changed accordingly with the new rule, so we act only on successful brute force attempts.
-A new brute force attempt rules should be added with severity higher than the last one (e.g. High) - so we can take care of more dangerous brute force attempts first.
+**Suggested improvements:**
+**1. Harden NSG baselines**
+	- Default templates for new VMs should allow inbound RDP/SSH **only for admin ranges / VPN**, never from `Any/Any`.
+**2. Add "successful brute force" detection**
+	- New Sentinel rule looking for:
+		- multiple `LogonFailed` followed by `LogonSuccess` from the same RemoteIP within a short window.
+**3. Adjust brute-force severities**
+	- Keep existing rule at Medium for low-volume noise.
+	- Add another rule with higher threshold (e.g. 100 failures in 1-2h) at `High` to prioritise aggressive campaigns.
+**4. Refine runbook**
+	- Separate **"failed brute force (noise, monitor)"** from **"confirmed or highly suspected compromise (isolate immediately)"**.
 
 ---
 
-## MITRE ATT&CK
+## MITRE ATT&CK Mapping
 
-T1110.001 - Brute Force: Password Guessing: the attackers were persistent with using only “administrator” as a login.
-T1580 - Cloud Infrastructure Discovery: the attack could be treated as a discovery scan as well, since the VMs were visible to everyone on the internet.
+- **T1110.001 - Brute Force: Password Guessing**
+  Repeated logon failures against multiple Azure VMs using common admin usernames.
+- **T1580 - Cloud Infrastructure Discovery** (possible)
+  Wide scanning of exposed Internet-facing VMs can also be interpreted as adversaries discovering cloud assets and surfaces.
