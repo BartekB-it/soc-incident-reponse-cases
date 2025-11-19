@@ -45,6 +45,7 @@ Goal of the investigation:
    - Tactic / Technique: `Credential Access (T1110.001 - Password Guessing)`
   
      _Screenshot:_ incident list + incident details
+     
      `![Sentinel incident](screenshots/sentinel-incident-overview.png)`
 
 2. **KQL - confirm brute-force pattern**
@@ -64,6 +65,7 @@ This query showed:
 - **~550 failed logons** in total.
 
   _Screenshot:_ KQL results table
+  
   ![KQL failed logons](screenshots/kql-failed-logons.png)
 
 ---
@@ -76,6 +78,7 @@ This query showed:
 - Opened the **Investigation graph** to visualise all affected VMs and relationships.
 
   _Screenshot:_ investigation graph with multiple VMs tied to one incident
+  
   ![Investigation graph](screenshots/investigation-graph.png)
 
 ### 2. Containment - devices & network
@@ -92,6 +95,7 @@ For each affected VM:
    - goal: stop random Internet brute-force attempts while keeping controlled admin access.
   
    _Screenshots:_ NSG inbound rule (RDP, single IP, TCP)
+   
    ![NSG rule](screenshots/nsg-rdp-rule.png)
 
 ### 3. Check for successful logons
@@ -110,6 +114,7 @@ DeviceLogonEvents
 **Result**: no matching `LogonSuccess` events for any suspect IP / target VM combination.
 
 _Screenshot:_ query returning no results
+
 ![KQL no success](screenshots/kql-no-success.png)
 
 ### 4. Close the incident
@@ -120,6 +125,7 @@ _Screenshot:_ query returning no results
   - Comment: "Brute force attempts occurred but none of them were successful."
  
     _Screenshot:_ closing dialogue with comment
+    
     ![Close incident](screenshots/close-incident.png)
 
 ---
